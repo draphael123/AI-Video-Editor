@@ -85,6 +85,7 @@ export default function EditorPage() {
   const [zoom, setZoom] = useState(1);
   const [showExportModal, setShowExportModal] = useState(false);
   const [videoFile, setVideoFile] = useState<{ name: string; size: number } | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -98,7 +99,44 @@ export default function EditorPage() {
       setVideoFile({ name: parsed.name, size: parsed.size });
       setProjectName(parsed.name.replace(/\.[^/.]+$/, ""));
     }
+
+    // Get video URL from global store
+    if (typeof window !== "undefined") {
+      const store = (window as any).__clipcraft_video_store;
+      if (store && store[projectId]) {
+        setVideoUrl(store[projectId].url);
+      }
+    }
   }, [projectId]);
+
+  // Sync video element with state
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (videoState.isPlaying) {
+      video.play().catch(() => {
+        setVideoState((prev) => ({ ...prev, isPlaying: false }));
+      });
+    } else {
+      video.pause();
+    }
+  }, [videoState.isPlaying]);
+
+  // Sync volume and mute
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = videoState.volume;
+    video.muted = videoState.isMuted;
+  }, [videoState.volume, videoState.isMuted]);
+
+  // Sync playback rate
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.playbackRate = videoState.playbackRate;
+  }, [videoState.playbackRate]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -462,13 +500,48 @@ export default function EditorPage() {
               className="video-container w-full max-w-5xl shadow-2xl shadow-black/50 relative"
               style={{ transform: `scale(${zoom})` }}
             >
-              {videoFile ? (
+              {videoUrl ? (
+                <video
+                  ref={videoRef}
+                  src={videoUrl}
+                  className="absolute inset-0 w-full h-full object-contain bg-black"
+                  onLoadedMetadata={(e) => {
+                    const video = e.currentTarget;
+                    setVideoState((prev) => ({
+                      ...prev,
+                      duration: video.duration,
+                    }));
+                  }}
+                  onTimeUpdate={(e) => {
+                    const video = e.currentTarget;
+                    setVideoState((prev) => ({
+                      ...prev,
+                      currentTime: video.currentTime,
+                    }));
+                  }}
+                  onEnded={() => {
+                    setVideoState((prev) => ({
+                      ...prev,
+                      isPlaying: false,
+                      currentTime: 0,
+                    }));
+                  }}
+                  onClick={() => {
+                    setVideoState((prev) => ({
+                      ...prev,
+                      isPlaying: !prev.isPlaying,
+                    }));
+                  }}
+                  playsInline
+                />
+              ) : videoFile ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-void-900 via-void-950 to-void-900">
                   <div className="text-center">
-                    <Film className="w-20 h-20 text-void-700 mx-auto mb-4" />
+                    <Loader2 className="w-12 h-12 text-spark-400 mx-auto mb-4 animate-spin" />
                     <p className="text-zinc-400 font-medium">{videoFile.name}</p>
-                    <p className="text-zinc-600 text-sm mt-1">
-                      {(videoFile.size / (1024 * 1024)).toFixed(2)} MB
+                    <p className="text-zinc-500 text-sm mt-1">Loading video...</p>
+                    <p className="text-zinc-600 text-xs mt-2">
+                      If video doesn&apos;t load, try re-uploading from the home page
                     </p>
                   </div>
                 </div>
@@ -591,12 +664,16 @@ export default function EditorPage() {
               <div className="flex items-center gap-4 mb-4">
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() =>
+                    onClick={() => {
+                      const newTime = Math.max(0, videoState.currentTime - 10);
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = newTime;
+                      }
                       setVideoState((prev) => ({
                         ...prev,
-                        currentTime: Math.max(0, prev.currentTime - 10),
-                      }))
-                    }
+                        currentTime: newTime,
+                      }));
+                    }}
                     className="btn-ghost p-2"
                     title="Back 10s"
                   >
@@ -618,12 +695,16 @@ export default function EditorPage() {
                     )}
                   </button>
                   <button
-                    onClick={() =>
+                    onClick={() => {
+                      const newTime = Math.min(videoState.duration, videoState.currentTime + 10);
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = newTime;
+                      }
                       setVideoState((prev) => ({
                         ...prev,
-                        currentTime: Math.min(prev.duration, prev.currentTime + 10),
-                      }))
-                    }
+                        currentTime: newTime,
+                      }));
+                    }}
                     className="btn-ghost p-2"
                     title="Forward 10s"
                   >
@@ -720,9 +801,13 @@ export default function EditorPage() {
                   if (rect) {
                     const x = e.clientX - rect.left;
                     const percentage = x / rect.width;
+                    const newTime = percentage * videoState.duration;
+                    if (videoRef.current) {
+                      videoRef.current.currentTime = newTime;
+                    }
                     setVideoState((prev) => ({
                       ...prev,
-                      currentTime: percentage * prev.duration,
+                      currentTime: newTime,
                     }));
                   }
                 }}

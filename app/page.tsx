@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -21,11 +21,17 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+// Store video file globally so it persists during navigation
+if (typeof window !== "undefined") {
+  (window as any).__clipcraft_video_store = (window as any).__clipcraft_video_store || {};
+}
+
 export default function HomePage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const videoUrlRef = useRef<string | null>(null);
   const router = useRouter();
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -42,6 +48,21 @@ export default function HomePage() {
 
     const newProjectId = `proj_${Date.now()}`;
     setProjectId(newProjectId);
+
+    // Create a blob URL for the video
+    const videoUrl = URL.createObjectURL(file);
+    videoUrlRef.current = videoUrl;
+
+    // Store file and URL globally for the editor
+    if (typeof window !== "undefined") {
+      (window as any).__clipcraft_video_store[newProjectId] = {
+        file: file,
+        url: videoUrl,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      };
+    }
 
     // Store file info in sessionStorage for the editor
     sessionStorage.setItem(
